@@ -4,7 +4,7 @@ Set-Location $PSScriptRoot
 function Test-Url([string]$Url) {
     try {
         $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
-        return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500)
+        return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400)
     }
     catch {
         return $false
@@ -84,6 +84,8 @@ else {
     if (-not $frontendReady) {
         Write-Host "Frontend did not become available within 30 seconds." -ForegroundColor Red
         Write-Host "Check the WebUI PowerShell window for the actual npm/Vite error." -ForegroundColor Yellow
+        Write-Host "If port 5173 is already in use, run:" -ForegroundColor Yellow
+        Write-Host "  Get-NetTCPConnection -LocalPort 5173 -State Listen | Select-Object LocalAddress,LocalPort,OwningProcess" -ForegroundColor White
         exit 1
     }
 
