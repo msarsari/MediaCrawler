@@ -72,7 +72,7 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
 node --version
 npm --version
 
-Write-Step "Installing WebUI dependencies"
+Write-Step "Installing and building WebUI"
 $webuiPath = Join-Path $PSScriptRoot "webui"
 if (-not (Test-Path $webuiPath)) {
     throw "webui directory was not found: $webuiPath"
@@ -80,9 +80,18 @@ if (-not (Test-Path $webuiPath)) {
 Push-Location $webuiPath
 try {
     npm install
+    if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE" }
+
+    npm run build
+    if ($LASTEXITCODE -ne 0) { throw "npm run build failed with exit code $LASTEXITCODE" }
 }
 finally {
     Pop-Location
+}
+
+$builtIndex = Join-Path $PSScriptRoot "api\webui\index.html"
+if (-not (Test-Path $builtIndex)) {
+    throw "WebUI build did not create $builtIndex"
 }
 
 Write-Step "Verifying backend import"
@@ -91,6 +100,6 @@ uv run python -c "import fastapi, uvicorn, playwright; print('Python backend dep
 Write-Host "`nSetup completed successfully." -ForegroundColor Green
 Write-Host "To start MediaCrawler WebUI, run:" -ForegroundColor Yellow
 Write-Host "  .\start_webui.ps1" -ForegroundColor White
-Write-Host "`nThe development WebUI will use:" -ForegroundColor Yellow
-Write-Host "  Backend: http://localhost:8080"
-Write-Host "  Frontend: http://localhost:5173"
+Write-Host "`nThe WebUI and API will be served together at:" -ForegroundColor Yellow
+Write-Host "  http://127.0.0.1:8088" -ForegroundColor White
+Write-Host "Port 5173 is only needed for manual frontend development, not normal use." -ForegroundColor DarkGray
