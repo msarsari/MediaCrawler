@@ -3,7 +3,7 @@ Set-Location $PSScriptRoot
 
 function Test-Url([string]$Url) {
     try {
-        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3
         return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400)
     }
     catch {
@@ -11,89 +11,83 @@ function Test-Url([string]$Url) {
     }
 }
 
-$backendUrl = "http://127.0.0.1:8080"
-$backendHealthUrl = "$backendUrl/api/health"
-$frontendUrl = "http://127.0.0.1:5173"
+Write-Host "MediaCrawler WebUI launcher (production mode)" -ForegroundColor Green
+Write-Host "This mode does not use Vite on port 5173." -ForegroundColor DarkGray
 
-$backendCommand = @"
+# 1. Build the React/Vite WebUI into api/webui.
+$webuiPath = Join-Path $PSScriptRoot "webui"
+$builtIndex = Join-Path $PSScriptRoot "api\webui\index.html"
+
+if (-not (Test-Path $webuiPath)) {
+    throw "WebUI directory not found: $webuiPath"
+}
+
+Write-Host "Building WebUI..." -ForegroundColor Cyan
+Push-Location $webuiPath
+try {
+    npm run build
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm run build failed with exit code $LASTEXITCODE"
+    }
+}
+finally {
+    Pop-Location
+}
+
+if (-not (Test-Path $builtIndex)) {
+    throw "WebUI build completed but $builtIndex was not created."
+}
+Write-Host "WebUI build completed." -ForegroundColor Green
+
+# 2. Serve frontend + API from the same FastAPI process.
+# Use 8088 so an older development backend on 8080 cannot interfere.
+$appUrl = "http://127.0.0.1:8088"
+$healthUrl = "$appUrl/api/health"
+
+$serverCommand = @"
 Set-Location '$PSScriptRoot'
-Write-Host 'MediaCrawler Backend - keep this window open' -ForegroundColor Cyan
-uv run uvicorn api.main:app --host 127.0.0.1 --port 8080 --reload
+Write-Host 'MediaCrawler WebUI + API - keep this window open' -ForegroundColor Cyan
+Write-Host 'URL: $appUrl' -ForegroundColor Green
+uv run uvicorn api.main:app --host 127.0.0.1 --port 8088
 "@
 
-$frontendCommand = @"
-Set-Location '$PSScriptRoot\webui'
-Write-Host 'MediaCrawler WebUI - keep this window open' -ForegroundColor Cyan
-npm run dev -- --host 127.0.0.1
-"@
-
-Write-Host "MediaCrawler WebUI launcher" -ForegroundColor Green
-
-# 1. Start backend only if it is not already healthy.
-if (Test-Url $backendHealthUrl) {
-    Write-Host "Backend is already running: $backendHealthUrl" -ForegroundColor Green
+if (Test-Url $healthUrl) {
+    Write-Host "MediaCrawler server is already running: $appUrl" -ForegroundColor Green
 }
 else {
-    Write-Host "Starting backend on $backendUrl ..." -ForegroundColor Cyan
-    Start-Process powershell -ArgumentList '-NoExit','-ExecutionPolicy','Bypass','-Command',$backendCommand
+    Write-Host "Starting MediaCrawler server on $appUrl ..." -ForegroundColor Cyan
+    Start-Process powershell -ArgumentList '-NoExit','-ExecutionPolicy','Bypass','-Command',$serverCommand
 
-    Write-Host "Waiting for backend health check" -NoNewline
-    $backendReady = $false
+    Write-Host "Waiting for server" -NoNewline
+    $ready = $false
     for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Seconds 1
-        if (Test-Url $backendHealthUrl) {
-            $backendReady = $true
+        if (Test-Url $healthUrl) {
+            $ready = $true
             break
         }
         Write-Host "." -NoNewline
     }
     Write-Host ""
 
-    if (-not $backendReady) {
-        Write-Host "Backend did not become available within 60 seconds." -ForegroundColor Red
-        Write-Host "Check the Backend PowerShell window for the actual error." -ForegroundColor Yellow
-        Write-Host "You can also run this command manually from the project root:" -ForegroundColor Yellow
-        Write-Host "  uv run uvicorn api.main:app --host 127.0.0.1 --port 8080 --reload" -ForegroundColor White
-        Write-Host "Then verify: $backendHealthUrl" -ForegroundColor White
+    if (-not $ready) {
+        Write-Host "Server did not become available within 60 seconds." -ForegroundColor Red
+        Write-Host "Check the new PowerShell server window for the actual error." -ForegroundColor Yellow
+        Write-Host "Manual command:" -ForegroundColor Yellow
+        Write-Host "  uv run uvicorn api.main:app --host 127.0.0.1 --port 8088" -ForegroundColor White
         exit 1
     }
-
-    Write-Host "Backend is ready." -ForegroundColor Green
 }
 
-# 2. Start the Vite frontend.
-if (Test-Url $frontendUrl) {
-    Write-Host "Frontend is already running: $frontendUrl" -ForegroundColor Green
-}
-else {
-    Write-Host "Starting WebUI on $frontendUrl ..." -ForegroundColor Cyan
-    Start-Process powershell -ArgumentList '-NoExit','-ExecutionPolicy','Bypass','-Command',$frontendCommand
-
-    Write-Host "Waiting for frontend" -NoNewline
-    $frontendReady = $false
-    for ($i = 0; $i -lt 30; $i++) {
-        Start-Sleep -Seconds 1
-        if (Test-Url $frontendUrl) {
-            $frontendReady = $true
-            break
-        }
-        Write-Host "." -NoNewline
-    }
-    Write-Host ""
-
-    if (-not $frontendReady) {
-        Write-Host "Frontend did not become available within 30 seconds." -ForegroundColor Red
-        Write-Host "Check the WebUI PowerShell window for the actual npm/Vite error." -ForegroundColor Yellow
-        Write-Host "If port 5173 is already in use, run:" -ForegroundColor Yellow
-        Write-Host "  Get-NetTCPConnection -LocalPort 5173 -State Listen | Select-Object LocalAddress,LocalPort,OwningProcess" -ForegroundColor White
-        exit 1
-    }
-
-    Write-Host "Frontend is ready." -ForegroundColor Green
+if (-not (Test-Url $appUrl)) {
+    Write-Host "API is running but the WebUI root page is not available." -ForegroundColor Red
+    Write-Host "Expected built file: $builtIndex" -ForegroundColor Yellow
+    exit 1
 }
 
-Start-Process "$frontendUrl/"
+Start-Process "$appUrl/"
 
 Write-Host "`nMediaCrawler is ready." -ForegroundColor Green
-Write-Host "Backend health: $backendHealthUrl"
-Write-Host "Frontend:       $frontendUrl"
+Write-Host "WebUI + API: $appUrl"
+Write-Host "Health check: $healthUrl"
+Write-Host "Port 5173 is no longer used by this launcher." -ForegroundColor DarkGray
