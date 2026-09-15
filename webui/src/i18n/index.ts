@@ -2,7 +2,7 @@ import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 
-// 中文翻译
+// Chinese translations
 import zhCommon from './locales/zh-CN/common.json'
 import zhConfig from './locales/zh-CN/config.json'
 import zhTerminal from './locales/zh-CN/terminal.json'
@@ -10,7 +10,7 @@ import zhData from './locales/zh-CN/data.json'
 import zhEnv from './locales/zh-CN/env.json'
 import zhLicense from './locales/zh-CN/license.json'
 
-// 英文翻译
+// English translations
 import enCommon from './locales/en-US/common.json'
 import enConfig from './locales/en-US/config.json'
 import enTerminal from './locales/en-US/terminal.json'
@@ -42,7 +42,8 @@ i18n
   .use(initReactI18next)
   .init({
     resources,
-    fallbackLng: 'zh-CN',
+    supportedLngs: ['en-US', 'zh-CN'],
+    fallbackLng: 'en-US',
     defaultNS: 'common',
     interpolation: {
       escapeValue: false,
